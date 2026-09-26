@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.chrome-driver/
+*.log
+.DS_Store
