@@ -1,6 +1,6 @@
 {
   "name": "chrome-driver",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Local-first Playwright agent powered by Chrome's built-in Gemini Nano Prompt API",
   "type": "module",
@@ -12,6 +12,7 @@
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
     "doctor": "tsx src/cli.ts doctor",
+    "test": "tsx --test src/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "engines": {
