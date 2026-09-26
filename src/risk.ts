@@ -1,6 +1,6 @@
 import type { AgentAction, PageObservation } from './types.js';
 
-const HIGH_IMPACT = /\b(buy|purchase|place order|pay now|send money|wire|transfer funds|delete account|close account|delete repository|delete project|publish|send email)\b/i;
+const HIGH_IMPACT = /\b(buy|purchase|place order|pay now|send|wire|transfer funds|delete|close account|publish)\b/i;
 
 export function assessRisk(action: AgentAction, observation: PageObservation): string | null {
   if (action.action === 'navigate' && action.url) {

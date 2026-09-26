@@ -164,7 +164,16 @@ export class ChromeDriverAgent {
       history.push(record);
       this.options.onStep?.(record);
 
-      const signature = JSON.stringify({ action, result, url: this.page.url() });
+      const signature = JSON.stringify({
+        action: action.action,
+        target: action.target,
+        value: action.value,
+        url: action.url,
+        key: action.key,
+        option: action.option,
+        result,
+        pageUrl: this.page.url(),
+      });
       if (signature === repeatedSignature) repeatCount += 1;
       else {
         repeatedSignature = signature;
