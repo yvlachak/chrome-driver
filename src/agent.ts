@@ -93,8 +93,8 @@ async function executeAction(page: Page, action: AgentAction): Promise<string> {
     }
     case 'scroll': {
       const direction = action.value.toLowerCase();
-      if (direction === 'top') await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
-      else if (direction === 'bottom') await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
+      if (direction === 'top') await page.evaluate(() => window.scrollTo(0, 0));
+      else if (direction === 'bottom') await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       else {
         const amount = await page.evaluate(() => Math.max(400, Math.round(window.innerHeight * 0.75)));
         await page.mouse.wheel(0, direction === 'up' ? -amount : amount);

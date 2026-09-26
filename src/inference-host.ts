@@ -8,6 +8,7 @@ export interface InferenceHost {
 const SYSTEM_PROMPT = `You are Chrome Driver, a browser automation planner running locally in Chrome.
 Choose exactly one browser action per turn. You do not execute JavaScript and you never invent element references.
 Use only element refs present in the current observation. Prefer direct, minimal actions.
+Return an object with exactly these string fields: action, target, value, url, key, option, reason, answer.
 Action semantics:
 - navigate: set url to an explicit http/https URL.
 - click: set target to an observed element ref.
@@ -64,10 +65,13 @@ function html() {
   <pre id="state">idle</pre>
 <script>
 (() => {
-  const createOptions = {
-    initialPrompts: [{ role: 'system', content: ${systemPrompt} }],
+  const coreOptions = {
     expectedInputs: [{ type: 'text', languages: ['en'] }],
     expectedOutputs: [{ type: 'text', languages: ['en'] }],
+  };
+  const createOptions = {
+    ...coreOptions,
+    initialPrompts: [{ role: 'system', content: ${systemPrompt} }],
   };
   const actionSchema = ${actionSchema};
   let session = null;
@@ -85,7 +89,7 @@ function html() {
     let availability = 'unsupported';
     if (supported) {
       try {
-        availability = await LanguageModel.availability(createOptions);
+        availability = await LanguageModel.availability(coreOptions);
       } catch (error) {
         availability = 'error';
         lastError = String(error?.message || error);
