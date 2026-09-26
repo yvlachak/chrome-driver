@@ -6,12 +6,14 @@ The design keeps the model inside Chrome and Playwright in Node.js. There is no 
 
 ## How it works
 
-1. Chrome Driver launches installed **Google Chrome** using Playwright's `channel: "chrome"` with a persistent profile.
-2. A localhost top-level page initializes Chrome's built-in `LanguageModel` / Gemini Nano session.
-3. A separate target tab is observed through Playwright.
-4. Chrome Driver gives Gemini Nano bounded visible text plus deterministic refs for visible interactive elements.
-5. Gemini Nano returns exactly one JSON-schema-constrained action.
-6. A deterministic executor maps that action to Playwright and repeats until the goal is complete, blocked, or the step budget is exhausted.
+1. Chrome Driver launches installed **Google Chrome** using Playwright's `channel: "chrome"` with a persistent, dedicated profile.
+2. Startup suppresses Chrome first-run/default-browser/search-choice UI that would otherwise interfere with automation.
+3. Chrome Driver probes `LanguageModel.availability()` using Chrome itself as the source of truth.
+4. In the default `auto` mode, native eligibility is tried first. If Chrome reports the local model as `unavailable`, Chrome Driver transparently relaunches the same dedicated profile with Chromium's on-device performance-class compatibility parameters. This changes performance eligibility only; it does **not** disable Chrome's text-safety classifier.
+5. A localhost top-level page initializes Chrome's built-in `LanguageModel` / Gemini Nano session. On first use, Chrome can download the model through the normal component/model path.
+6. A separate target tab is observed through Playwright.
+7. Gemini Nano receives bounded page state and returns exactly one JSON-schema-constrained action.
+8. A deterministic executor maps that action to Playwright and repeats until the goal is complete, blocked, or the step budget is exhausted.
 
 ```text
 natural-language goal
@@ -31,19 +33,13 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design details.
 
 ## Requirements
 
-Chrome's current Prompt API documentation lists these relevant requirements for foundation-model APIs:
+You need Node.js 20+ and an installed desktop Google Chrome build that exposes the Prompt API.
 
-- a supported desktop Google Chrome build (the Prompt API is listed for the web beginning with Chrome 148)
-- Windows 10/11, macOS 13+, Linux, or supported Chromebook Plus hardware
-- at least 22 GB free on the volume containing the Chrome profile
-- CPU path: at least 16 GB RAM and 4 CPU cores, or GPU path: strictly more than 4 GB VRAM
-- an unmetered connection for the initial model download
+Chrome's documented native foundation-model eligibility includes supported desktop operating systems, sufficient disk space, and supported CPU/GPU hardware. **Chrome Driver no longer requires you to manually edit `chrome://flags` on borderline development machines.** Its default `auto` compatibility mode first preserves Chrome's normal native eligibility path, then falls back to Chromium's performance-class override only when Chrome itself reports the model as unavailable.
 
-After the model is downloaded, Chrome documents inference as local with no prompt data sent to Google or a third party by the on-device model.
+The compatibility fallback uses the same `OnDeviceModelPerformanceParams` parameters Chromium exposes for its BypassPerfRequirement / Force Small Model development variations. It intentionally does not bypass text safety.
 
 Reference: https://developer.chrome.com/docs/ai/prompt-api
-
-You also need Node.js 20+ and Google Chrome installed.
 
 ## Install
 
@@ -56,22 +52,47 @@ npm run build
 
 This project intentionally uses installed branded Chrome rather than Playwright's bundled Chromium because the built-in Gemini Nano API belongs to Chrome.
 
-## First-run check
+## Zero-touch first run
+
+Run:
 
 ```powershell
 npm run doctor
 ```
 
-`doctor` opens Chrome, loads the localhost inference host, checks `LanguageModel.availability()`, and clicks the initialization control. On first use Chrome may download the on-device model; subsequent runs reuse the persistent `.chrome-driver/profile` directory.
+`doctor` now performs the setup path itself:
 
-You can inspect Chrome's on-device model state at `chrome://on-device-internals`.
+- creates/reuses `.chrome-driver/profile`
+- suppresses first-run/profile onboarding UI used by a fresh automation profile
+- checks the Prompt API
+- tries Chrome's native model eligibility first
+- automatically relaunches with the performance-class compatibility path if native availability is `unavailable`
+- performs the real browser click required for model initialization
+- waits for the initial model download/initialization when necessary
+- reports the active bootstrap mode and basic host diagnostics
+
+A healthy first run should end with:
+
+```text
+Doctor passed: Gemini Nano is ready for local inference.
+```
+
+No manual `chrome://flags`, `chrome://on-device-internals`, profile selection, or Chrome sign-in should normally be required.
 
 ## Run an agent
+
+PowerShell:
 
 ```powershell
 npm run dev -- run `
   --start https://example.com `
   --goal "Open the More information link and tell me the title of the destination page."
+```
+
+CMD:
+
+```cmd
+npm run dev -- run --start https://example.com --goal "Open the More information link and tell me the title of the destination page."
 ```
 
 Or after `npm run build`:
@@ -83,12 +104,31 @@ node dist/cli.js run --start https://example.com --goal "Open the More informati
 Useful flags:
 
 ```text
---profile PATH    persistent Chrome profile directory
---max-steps N     maximum model/action turns (default 25)
---yes             auto-approve the narrow high-impact click guard
---headless        use Chrome headless; headed mode is recommended for initial validation
---port N          pin the localhost inference-host port
+--profile PATH          persistent Chrome profile directory
+--max-steps N           maximum model/action turns (default 25)
+--yes                   auto-approve the narrow high-impact click guard
+--compat-mode auto      native first, then automatic compatibility fallback (default)
+--compat-mode native    never override Chrome's hardware/performance eligibility
+--compat-mode force     always use the Chromium performance compatibility parameters
+--headless              use Chrome headless; headed mode is recommended for initial validation
+--port N                pin the localhost inference-host port
 ```
+
+## Compatibility modes
+
+`auto` is the recommended/default mode. It does not guess based on a hard-coded RAM threshold. Instead, Chrome decides whether the model is natively available. Only an explicit `unavailable` result triggers the compatibility relaunch.
+
+`native` is useful when validating production hardware against Chrome's official eligibility without any performance override.
+
+`force` is useful for development machines known to sit below Chrome's normal performance class. It enables these Chromium feature parameters at launch:
+
+```text
+OnDeviceModelPerformanceParams:
+  compatible_on_device_performance_classes/*
+  compatible_low_tier_on_device_performance_classes/*
+```
+
+Chrome Driver also requests a performance-class refresh at startup. Safety-model behavior is left unchanged.
 
 ## Action protocol
 
@@ -115,7 +155,9 @@ The default executor has three hard boundaries:
 2. navigation is limited to HTTP(S);
 3. a deterministic text guard requests confirmation before a small class of high-impact clicks such as purchases, fund transfers, destructive account actions, publishing, and sending email.
 
-For trusted unattended workflows, `--yes` bypasses the confirmation prompt. Site-specific allowlists and stronger transaction policies should be added before production use.
+The compatibility bootstrap does not disable Chrome's text-safety classifier.
+
+For trusted unattended workflows, `--yes` bypasses the browser-action confirmation prompt. Site-specific allowlists and stronger transaction policies should be added before production use.
 
 ## Profiles and authenticated sites
 
@@ -125,7 +167,7 @@ The default profile is dedicated to Chrome Driver:
 .chrome-driver/profile
 ```
 
-That lets cookies, site sessions, and the on-device model state persist across runs. You can provide another dedicated directory with `--profile`.
+That lets cookies, site sessions, component/model state, and the on-device model state persist across runs. You can provide another dedicated directory with `--profile`.
 
 Avoid pointing Chrome Driver at a profile currently open in another Chrome process; Chromium-based browsers do not allow two live processes to own the same user-data directory.
 
@@ -133,15 +175,17 @@ Avoid pointing Chrome Driver at a profile currently open in another Chrome proce
 
 This is an MVP agent runtime, not a replacement for Playwright's full locator/accessibility stack.
 
+- The compatibility override can permit Chrome to attempt inference on hardware below its normal performance class; such machines can be slower or may fail from resource pressure. Use `--compat-mode native` when strict native eligibility matters.
 - Observation is DOM-first and viewport-bounded; canvas-heavy apps may need a vision adapter.
 - Cross-origin iframe content is not yet traversed by the observer.
 - Closed shadow roots are not observable.
 - CAPTCHAs, 2FA, missing credentials, and ambiguous human decisions should produce `handoff`.
-- Built-in AI availability is still controlled by Chrome version, device capability, profile state, and enterprise policy.
+- Enterprise policy can still prohibit the built-in model/API; Chrome Driver does not attempt to bypass administrative policy.
 - Headed Chrome is the recommended first target; validate headless behavior on the machines you intend to run.
 
 ## Next useful extensions
 
+- richer component/model bootstrap diagnostics when Chrome remains unavailable after compatibility fallback
 - optional image/screenshot observations using the Prompt API's image modality
 - iframe and open-shadow-root traversal
 - site policy files (`allow`, `deny`, confirmation rules)
