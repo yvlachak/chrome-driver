@@ -186,9 +186,11 @@ export class HarnessMemory {
     sections.push(
       `RECENT STEPS:\n${snapshot.recentSteps.length
         ? snapshot.recentSteps
-            .map((record) => {
+            .map((record, index, records) => {
               const argument = clip(actionArgument(record.action), 100);
-              return `${record.step}. ${record.action.action}${argument ? `(${argument})` : ''} -> ${clip(record.result, 240)}`;
+              const distanceFromNewest = records.length - 1 - index;
+              const resultBudget = distanceFromNewest <= 1 ? 2500 : 400;
+              return `${record.step}. ${record.action.action}${argument ? `(${argument})` : ''} -> ${clip(record.result, resultBudget)}`;
             })
             .join('\n')
         : '(none)'}`,
