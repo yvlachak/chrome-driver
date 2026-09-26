@@ -3,8 +3,8 @@ import type { PageObservation } from './types.js';
 
 const REF_ATTRIBUTE = 'data-chrome-driver-ref';
 
-export async function observePage(page: Page): Promise<PageObservation> {
-  return page.evaluate((refAttribute) => {
+export async function observePage(page: Page, userPages: Page[] = [page]): Promise<PageObservation> {
+  const observed = await page.evaluate((refAttribute) => {
     const clip = (value: string | null | undefined, max = 220) =>
       (value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
@@ -34,21 +34,28 @@ export async function observePage(page: Page): Promise<PageObservation> {
       '[role="radio"]',
       '[role="combobox"]',
       '[role="menuitem"]',
+      '[role="switch"]',
+      '[role="tab"]',
       '[tabindex]:not([tabindex="-1"])',
+      'table',
+      '[role="table"]',
+      '[role="grid"]',
     ].join(',');
 
-    const interactive = Array.from(document.querySelectorAll<HTMLElement>(selector))
+    const candidates = Array.from(document.querySelectorAll<HTMLElement>(selector))
       .filter(visibleInViewport)
-      .slice(0, 100);
+      .slice(0, 120);
 
-    const elements = interactive.map((element, index) => {
+    const elements = candidates.map((element, index) => {
       const ref = `e${index + 1}`;
       element.setAttribute(refAttribute, ref);
 
       const input = element instanceof HTMLInputElement ? element : null;
+      const textarea = element instanceof HTMLTextAreaElement ? element : null;
       const select = element instanceof HTMLSelectElement ? element : null;
       const anchor = element instanceof HTMLAnchorElement ? element : null;
       const role = element.getAttribute('role') ?? '';
+      const isContent = element instanceof HTMLTableElement || role === 'table' || role === 'grid';
       const ariaLabel = element.getAttribute('aria-label');
       const labelledBy = element.getAttribute('aria-labelledby');
       const labelledText = labelledBy
@@ -64,25 +71,40 @@ export async function observePage(page: Page): Promise<PageObservation> {
           element.getAttribute('placeholder') ||
           element.innerText ||
           (input && input.type !== 'password' ? input.value : '') ||
+          (textarea ? textarea.value : '') ||
           (select ? select.selectedOptions[0]?.text : '') ||
           element.getAttribute('name') ||
           element.getAttribute('id'),
       );
 
+      const value = input
+        ? input.type === 'password'
+          ? ''
+          : clip(input.value, 300)
+        : textarea
+          ? clip(textarea.value, 300)
+          : select
+            ? clip(select.selectedOptions[0]?.text || select.value, 300)
+            : '';
+
       return {
         ref,
+        kind: isContent ? ('content' as const) : ('interactive' as const),
         tag: element.tagName.toLowerCase(),
         role,
         inputType: input?.type ?? '',
         name,
-        text: clip(element.innerText || element.textContent),
+        text: clip(element.innerText || element.textContent, isContent ? 600 : 220),
         href: clip(anchor?.href ?? element.getAttribute('href'), 320),
+        value,
         disabled:
           (element instanceof HTMLButtonElement ||
             element instanceof HTMLInputElement ||
             element instanceof HTMLSelectElement ||
             element instanceof HTMLTextAreaElement) &&
           element.disabled,
+        checked: input?.checked ?? element.getAttribute('aria-checked') === 'true',
+        focused: document.activeElement === element,
       };
     });
 
@@ -100,11 +122,11 @@ export async function observePage(page: Page): Promise<PageObservation> {
       if (text.length < 2 || seen.has(text)) continue;
       seen.add(text);
       textParts.push(text);
-      if (textParts.join('\n').length >= 5000) break;
+      if (textParts.join('\n').length >= 5500) break;
     }
 
     if (textParts.length === 0) {
-      textParts.push(clip(document.body?.innerText ?? '', 5000));
+      textParts.push(clip(document.body?.innerText ?? '', 5500));
     }
 
     const root = document.documentElement;
@@ -113,7 +135,7 @@ export async function observePage(page: Page): Promise<PageObservation> {
     return {
       url: location.href,
       title: document.title,
-      text: textParts.join('\n').slice(0, 5000),
+      text: textParts.join('\n').slice(0, 5500),
       elements,
       scroll: {
         y: Math.round(window.scrollY),
@@ -122,6 +144,19 @@ export async function observePage(page: Page): Promise<PageObservation> {
       },
     };
   }, REF_ATTRIBUTE);
+
+  const tabs = await Promise.all(
+    userPages
+      .filter((candidate) => !candidate.isClosed())
+      .map(async (candidate, index) => ({
+        index,
+        url: candidate.url(),
+        title: await candidate.title().catch(() => ''),
+        active: candidate === page,
+      })),
+  );
+
+  return { ...observed, tabs };
 }
 
 export function locatorForRef(page: Page, ref: string) {
