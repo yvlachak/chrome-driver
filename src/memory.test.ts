@@ -26,6 +26,17 @@ function record(step: number, result = 'ok'): StepRecord {
   };
 }
 
+function repeatedFailure(step: number): StepRecord {
+  const failedAction = action('click');
+  failedAction.target = 'e7';
+  return {
+    step,
+    action: failedAction,
+    result: 'failed: timeout',
+    url: 'https://example.com/form',
+  };
+}
+
 const observation: PageObservation = {
   url: 'https://example.com',
   title: 'Example',
@@ -58,15 +69,16 @@ test('keeps recent steps high resolution and deterministically compacts older st
   assert.match(snapshot.episodes[1]?.summary ?? '', /3:wait/);
 });
 
-test('tracks failed action patterns and visited pages', () => {
+test('tracks repeated failed action patterns and visited pages', () => {
   const memory = new HarnessMemory('test goal');
   memory.noteObservation(observation, 1);
   memory.noteObservation(observation, 2);
-  memory.record(record(1, 'failed: timeout'));
-  memory.record(record(2, 'failed: timeout'));
+  memory.record(repeatedFailure(1));
+  memory.record(repeatedFailure(2));
 
   const snapshot = memory.snapshot();
   assert.equal(snapshot.visitedPages[0]?.visits, 2);
-  assert.equal(snapshot.failures.length, 2);
+  assert.equal(snapshot.failures.length, 1);
+  assert.equal(snapshot.failures[0]?.count, 2);
   assert.match(memory.context(), /KNOWN FAILURES/);
 });
