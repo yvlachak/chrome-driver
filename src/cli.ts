@@ -21,17 +21,18 @@ function usage() {
 
 Usage:
   chrome-driver doctor [--profile PATH] [--compat-mode auto|native|force] [--headless]
-  chrome-driver run --goal "..." [--start URL] [--profile PATH] [--max-steps 25] [--yes] [--compat-mode auto|native|force] [--headless]
+  chrome-driver run --goal "..." [--start URL] [--profile PATH] [--max-steps 25] [--memory-budget 11000] [--yes] [--compat-mode auto|native|force] [--headless]
 
 Options:
-  --goal TEXT       Natural-language automation goal
-  --start URL       Starting URL for the target tab
-  --profile PATH    Persistent Chrome profile directory (default: .chrome-driver/profile)
-  --max-steps N     Agent step limit (default: 25)
-  --yes             Auto-approve deterministic high-impact click guard
-  --compat-mode M   Built-in AI eligibility mode: auto (default), native, or force
-  --headless        Run branded Chrome headless (headed mode is recommended initially)
-  --port N          Fixed localhost inference-host port (default: random)
+  --goal TEXT         Natural-language automation goal
+  --start URL         Starting URL for the target tab
+  --profile PATH      Persistent Chrome profile directory (default: .chrome-driver/profile)
+  --max-steps N       Agent step limit (default: 25)
+  --memory-budget N   Approximate harness-memory character budget sent per decision (default: 11000)
+  --yes               Auto-approve deterministic high-impact action guard
+  --compat-mode M     Built-in AI eligibility mode: auto (default), native, or force
+  --headless          Run branded Chrome headless (headed mode is recommended initially)
+  --port N            Fixed localhost inference-host port (default: random)
 `);
 }
 
@@ -87,6 +88,7 @@ async function run() {
   if (!goal) throw new Error('run requires --goal "..."');
 
   const maxSteps = Number.parseInt(valueOf('--max-steps') ?? '25', 10);
+  const memoryBudget = Number.parseInt(valueOf('--memory-budget') ?? '11000', 10);
   const browser = await open();
   try {
     printBootstrap(browser);
@@ -103,10 +105,15 @@ async function run() {
     const agent = new ChromeDriverAgent(browser.targetPage, browser, {
       goal,
       maxSteps: Number.isFinite(maxSteps) ? maxSteps : 25,
+      protectedPages: [browser.inferencePage],
+      memory: {
+        contextBudget: Number.isFinite(memoryBudget) ? Math.max(3000, memoryBudget) : 11_000,
+      },
       approveRisk: autoApprove ? async () => true : confirmRisk,
       onStep: (record) => {
-        console.log(`\n[${record.step}] ${record.action.action} ${record.action.target || record.action.url || record.action.value}`.trim());
-        console.log(`    ${record.result}`);
+        const argument = record.action.target || record.action.url || record.action.tab || record.action.value;
+        console.log(`\n[${record.step}] ${record.action.action} ${argument}`.trim());
+        console.log(`    ${record.result.length > 1200 ? `${record.result.slice(0, 1200)}…` : record.result}`);
       },
     });
 
