@@ -2,6 +2,7 @@
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { ChromeDriverAgent } from './agent.js';
+import { parseCompatibilityMode } from './bootstrap.js';
 import { openChromeDriverBrowser } from './browser.js';
 import type { AgentAction } from './types.js';
 
@@ -19,8 +20,8 @@ function usage() {
   console.log(`chrome-driver
 
 Usage:
-  chrome-driver doctor [--profile PATH] [--headless]
-  chrome-driver run --goal "..." [--start URL] [--profile PATH] [--max-steps 25] [--yes] [--headless]
+  chrome-driver doctor [--profile PATH] [--compat-mode auto|native|force] [--headless]
+  chrome-driver run --goal "..." [--start URL] [--profile PATH] [--max-steps 25] [--yes] [--compat-mode auto|native|force] [--headless]
 
 Options:
   --goal TEXT       Natural-language automation goal
@@ -28,6 +29,7 @@ Options:
   --profile PATH    Persistent Chrome profile directory (default: .chrome-driver/profile)
   --max-steps N     Agent step limit (default: 25)
   --yes             Auto-approve deterministic high-impact click guard
+  --compat-mode M   Built-in AI eligibility mode: auto (default), native, or force
   --headless        Run branded Chrome headless (headed mode is recommended initially)
   --port N          Fixed localhost inference-host port (default: random)
 `);
@@ -49,16 +51,30 @@ async function open() {
     userDataDir: valueOf('--profile'),
     headless: has('--headless'),
     port: portValue ? Number.parseInt(portValue, 10) : 0,
+    compatibilityMode: parseCompatibilityMode(valueOf('--compat-mode')),
   });
 }
 
+function printBootstrap(browser: Awaited<ReturnType<typeof open>>) {
+  const info = browser.bootstrap;
+  console.log(
+    `Chrome bootstrap: mode=${info.activeMode}, native=${info.nativeAvailability}, final=${info.finalAvailability}, RAM=${info.host.totalMemoryGiB} GiB, CPUs=${info.host.logicalCpuCount}`,
+  );
+  if (info.activeMode === 'compat' && info.requestedMode === 'auto') {
+    console.log(
+      'Native eligibility was unavailable, so chrome-driver automatically relaunched Chrome with Chromium performance-class compatibility parameters. Text-safety remains enabled.',
+    );
+  }
+}
+
 async function doctor() {
-  console.log('Launching installed Google Chrome and checking the built-in Prompt API...');
-  console.log('On first use, Chrome may download Gemini Nano. Chrome documents an unmetered connection and sufficient free disk space as requirements.');
+  console.log('Launching installed Google Chrome and bootstrapping the built-in Prompt API...');
+  console.log('First-run/profile UI is suppressed for the dedicated automation profile. If needed, chrome-driver automatically applies the on-device performance compatibility path.');
   const browser = await open();
   try {
+    printBootstrap(browser);
     console.log('Before initialization:', await browser.status());
-    console.log('Initializing through a real browser click so Chrome can satisfy user-activation requirements...');
+    console.log('Initializing Gemini Nano. Chrome may download the model on first use...');
     console.log('After initialization:', await browser.initializeNano());
     console.log('Doctor passed: Gemini Nano is ready for local inference.');
   } finally {
@@ -73,6 +89,7 @@ async function run() {
   const maxSteps = Number.parseInt(valueOf('--max-steps') ?? '25', 10);
   const browser = await open();
   try {
+    printBootstrap(browser);
     console.log('Initializing Chrome built-in Gemini Nano...');
     const nano = await browser.initializeNano();
     console.log(`Gemini Nano ready (${nano.availability}).`);
