@@ -180,13 +180,11 @@ const definitions: ToolDefinition[] = [
   {
     name: 'new_tab',
     async execute(runtime, action) {
+      const url = action.url ? parseHttpUrl(action.url) : null;
+      if (action.url && !url) return fail('new_tab url must be a valid http/https URL');
       const page = await runtime.activePage().context().newPage();
       runtime.setActivePage(page);
-      if (action.url) {
-        const url = parseHttpUrl(action.url);
-        if (!url) return fail('new_tab url must be a valid http/https URL');
-        await page.goto(url.toString(), { waitUntil: 'domcontentloaded', timeout: 30_000 });
-      }
+      if (url) await page.goto(url.toString(), { waitUntil: 'domcontentloaded', timeout: 30_000 });
       return ok(`opened new tab at ${page.url()}`);
     },
   },
@@ -211,7 +209,8 @@ const definitions: ToolDefinition[] = [
       const pages = runtime.userPages();
       if (pages.length <= 1) return fail('refusing to close the last user tab');
       const requested = action.tab || action.value;
-      const page = requested ? pages[Number.parseInt(requested, 10)] : runtime.activePage();
+      const requestedIndex = requested ? Number.parseInt(requested, 10) : -1;
+      const page = requested ? pages[requestedIndex] : runtime.activePage();
       if (!page || !pages.includes(page)) return fail('close_tab requires a current user-tab index');
       const index = pages.indexOf(page);
       await page.close();
@@ -242,7 +241,9 @@ const definitions: ToolDefinition[] = [
       if (action.target) {
         const locator = await target(runtime, action.target);
         if (!locator) return fail(`stale or missing ref ${action.target}`);
-        text = await locator.innerText({ timeout: 10_000 }).catch(async () => locator.textContent({ timeout: 10_000 }).then((value) => value ?? ''));
+        text = await locator
+          .innerText({ timeout: 10_000 })
+          .catch(async () => locator.textContent({ timeout: 10_000 }).then((value) => value ?? ''));
       } else {
         text = await runtime.activePage().locator('body').innerText({ timeout: 10_000 });
       }
@@ -294,7 +295,9 @@ const definitions: ToolDefinition[] = [
 ];
 
 export class ToolRegistry {
-  private readonly tools = new Map<ActionName, ToolDefinition>(definitions.map((definition) => [definition.name, definition]));
+  private readonly tools = new Map<ActionName, ToolDefinition>(
+    definitions.map((definition): [ActionName, ToolDefinition] => [definition.name, definition]),
+  );
 
   has(name: ActionName) {
     return this.tools.has(name);
